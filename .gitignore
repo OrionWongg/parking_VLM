@@ -30,5 +30,8 @@ data/vlm_analysis_result.txt
 .DS_Store
 Thumbs.db
 
+# Temp files
+instruction.md
+
 # Claude
 .claude/
