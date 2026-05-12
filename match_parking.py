@@ -6,12 +6,15 @@ from datetime import datetime
 
 DATA_DIR = "/home/qianhai/parking_VLM/data"
 PIC_DIRS = [os.path.join(DATA_DIR, "pic1"), os.path.join(DATA_DIR, "pic2")]
-EXCEL_PATH = os.path.join(DATA_DIR, "parking_data.xls")
+EXCEL_PATH = os.path.join(DATA_DIR, "parking_data_1.xls")
 OUTPUT_TXT = os.path.join(DATA_DIR, "unmatched_images.txt")
 
 FILENAME_PATTERN = re.compile(
     r"^(\d+)_(\d{4})_(\d{2})_(\d{2})_(\d{2})_(\d{2})_(\d{2})_(.+)\.jpg$"
 )
+
+
+MAINLAND_PROVINCES = set("京津沪渝冀豫云辽黑湘皖鲁新苏浙赣鄂桂甘晋蒙陕吉闽贵粤川青藏琼宁夏")
 
 
 def parse_image_filename(filename):
@@ -23,8 +26,13 @@ def parse_image_filename(filename):
         int(m.group(2)), int(m.group(3)), int(m.group(4)),
         int(m.group(5)), int(m.group(6)), int(m.group(7)),
     )
-    plate = m.group(8)
-    return {"index": index, "datetime": dt, "plate": plate, "filename": filename}
+    raw_plate = m.group(8).strip()
+    # 两地牌：文件名中多个车牌用空格分隔，优先大陆牌（首字符为省份汉字）
+    plates = [p.strip() for p in raw_plate.split() if p.strip()]
+    mainland = [p for p in plates if p and p[0] in MAINLAND_PROVINCES]
+    others = [p for p in plates if p and p[0] not in MAINLAND_PROVINCES]
+    ordered_plates = mainland + others  # 大陆牌优先
+    return {"index": index, "datetime": dt, "plates": ordered_plates, "filename": filename}
 
 
 def main():
@@ -66,8 +74,9 @@ def main():
     matched = []
     unmatched = []
     for img in all_images:
-        plate = img["plate"].strip()
-        if plate in excel_plates:
+        hit = next((p for p in img["plates"] if p in excel_plates), None)
+        if hit:
+            img["matched_plate"] = hit
             matched.append(img)
         else:
             unmatched.append(img)

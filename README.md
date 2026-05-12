@@ -1,6 +1,6 @@
 # Parking VLM - 停车场车牌异常分析工具
 
-基于 VLM（视觉语言模型）的停车场车牌异常检测与分析工具。将停车场摄像头图片与出入记录进行匹配，对无法匹配的异常车辆图片调用 VLM 进行智能分析，输出结构化 JSON 结果，并自动关联停车场系统中的无牌车记录。
+基于 VLM（视觉语言模型）的停车场车牌异常检测与分析工具。将停车场摄像头图片与出入记录进行匹配，对无法匹配的异常车辆图片调用 VLM 进行智能分析，输出结构化 JSON 结果，并自动关联停车场系统中的无牌车及逃费记录。
 
 ## 项目流程
 
@@ -12,10 +12,10 @@
 
 | 脚本 | 功能 |
 |------|------|
-| `match_parking.py` | 解析 `data/pic1`、`data/pic2` 中的图片文件名，按时间排序得到时间区间，与 `parking_data.xls` 中的车辆记录按车牌号匹配。未匹配的图片输出到 `data/unmatched_images.txt` |
+| `match_parking.py` | 解析 `data/pic1`、`data/pic2` 中的图片文件名，按时间排序得到时间区间，与 `parking_data_1.xls` 中的车辆记录按车牌号匹配。支持两地牌（文件名中空格分隔），优先使用大陆牌照匹配，查不到再尝试其他牌照。未匹配的图片输出到 `data/unmatched_images.txt` |
 | `extract_anomaly_images.py` | 读取 `unmatched_images.txt`，将未匹配的异常图片复制到 `data/anomaly_images/` 目录，文件名加上来源文件夹前缀避免重名 |
 | `crop_anomaly_images.py` | 自动检测异常图片底部的黑色背景文字区域并裁剪掉，输出到 `data/anomaly_images_cropped/` 目录。使用像素亮度分析自动确定裁剪位置 |
-| `analyze_unmatched.py` | 读取裁剪后的图片，逐张调用 VLM API 进行车牌识别，输出 JSON 格式结果（车牌情况/车牌号码/异常原因）。对无牌车自动根据文件名中的出场时间查询 XLS 记录，关联管理员登记的电话号码 |
+| `analyze_unmatched.py` | 读取裁剪后的图片，逐张调用 VLM API 进行车牌识别，输出 JSON 格式结果。对**无牌车**根据文件名出场时间在 `parking_data_1.xls` 中查找驶出时间 ≥ 图片时间的第一条记录（标注人工登记）；对**疑似逃费**车辆在 `parking_data_2.xls` 中查询车牌，查到则确认逃费，查不到则标注人工登记 |
 | `vlm_prompt.yaml` | VLM 配置文件，包含 API 地址、模型名称、提示词等参数，修改提示词无需改代码 |
 
 ## 数据结构
@@ -24,7 +24,8 @@
 data/
 ├── pic1/                        # 摄像头1 原始图片
 ├── pic2/                        # 摄像头2 原始图片
-├── parking_data.xls             # 停车场出入记录
+├── parking_data_1.xls           # 停车场出入完整记录（用于匹配和无牌车查询）
+├── parking_data_2.xls           # 未驶出记录（用于逃费核查）
 ├── unmatched_images.txt         # 未匹配图片列表（自动生成）
 ├── anomaly_images/              # 提取出的异常图片（自动生成）
 ├── anomaly_images_cropped/      # 裁剪后的异常图片（自动生成）
@@ -39,11 +40,17 @@ data/
 {
   "车牌情况": "车牌完整 | 车牌不完整 | 无牌",
   "车牌号码": "粤BXXXXX 或空字符串",
-  "异常原因": "逃费 | 车牌不完整 | 无牌车"
+  "异常原因": "疑似逃费 | 车牌不完整 | 无牌车"
 }
 ```
 
-对于无牌车，脚本会自动根据图片文件名中的出场时间在 XLS 中查找对应记录（部分无牌车辆由管理员登记电话号码而非车牌）。
+后续根据 `车牌情况` 自动进行 XLS 关联查询：
+
+| 车牌情况 | 操作 | 结果标注 |
+|----------|------|----------|
+| 无牌 | 按出场时间查 `parking_data_1.xls` | 找到 → 人工登记；找不到 → 无记录 |
+| 车牌完整 | 按车牌查 `parking_data_2.xls` | 找到 → 确认逃费（输出驶入时间、预出场时间、停车时长）；找不到 → 人工登记 |
+| 车牌不完整 | 不查询 | 直接记录车牌不完整 |
 
 ## 使用方法
 
@@ -96,6 +103,6 @@ python3 analyze_unmatched.py
 | `api_key` | 阿里云百炼 API Key |
 | `base_url` | API 地址 |
 | `model` | 模型名称（如 `qwen-vl-plus`、`qwen3.6-plus`） |
-| `enable_thinking` | 是否开启思考过程输出 |
+| `enable_thinking` | 是否开启思考过程输出（调试用） |
 | `system_prompt` | 系统提示词 |
 | `user_prompt` | 用户提示词，支持 `{filename}` 占位符 |
